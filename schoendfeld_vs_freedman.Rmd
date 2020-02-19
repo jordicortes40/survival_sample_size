@@ -1,0 +1,120 @@
+---
+title: "Comparing Schoendfeld vs. Freedman formulas for sample size"
+author: "Jordi Cortés"
+date: "18/2/2020"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE,message=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(survival))
+suppressMessages(library(knitr))
+suppressMessages(library(snowfall))
+
+# Sample size formulas
+schoendfeld.formula <- function(alpha,power,HR) E <- 4*(qnorm(1-alpha/2) +  qnorm(power))^2 / (log(HR))^2
+freedman.formula    <- function(alpha,power,HR) E <- (HR+1)^2 * (qnorm(1-alpha/2) + qnorm(power))^2/(HR-1)^2
+
+##-- Log-rank function for vectorize
+f.log.rank <- function(t,tau,Treatment){
+  STATUS <- t<tau
+  t[t>=tau] <- tau 
+  LR <- survdiff(Surv(t,STATUS)~Treatment)
+  return(1 - pchisq(LR$chisq,1))
+}
+
+
+# Panalize scientific notation
+options(scipen=5)
+
+# sfInit for parallel computing
+sfInit(parallel=TRUE, cpus=7)
+suppressMessages(sfLibrary(survival))
+```
+
+## Simulations
+
+This document has the aim to shown the performance of **Freedman** and **Schoendfeld** formulas by a simple simulation.
+
+- Schoendfeld formula:
+
+$E=\frac{4(Z_{\alpha/2}+Z_{\beta})^2}{\left(log(HR)\right)^2}$
+
+- Freedman formula:
+
+$E=\frac{(HR+1)^2(Z_{\alpha}+Z_{\beta})^2}{\left(HR-1\right)^2}$
+
+```{r simulations,message=FALSE,warning=FALSE}
+set.seed(12345)                  # Seed to replicate the results
+nsim <- 10000                    # number of simulations
+HR <- seq(0.1,0.95,0.05)         # HR tested
+power_S <- power_F <- c()        # Store powers of Schoendfeld (S) and Freedman (F) formulas.
+
+for(hr in HR){
+  
+  ##-- Schoendfeld-----------------------------
+  E <- schoendfeld.formula(alpha=0.05,power=0.8,HR=hr)
+  N <- 2*ceiling(E/(pexp(1,1)+pexp(1,hr)))
+  Treatment <- c(rep(0,N/2),rep(1,N/2))
+  
+  # Generate times
+  time0_C <- matrix(rexp(nsim*N/2,1),nrow=nsim)
+  time0_T <- matrix(rexp(nsim*N/2,hr),nrow=nsim)
+  time <- cbind(time0_C,time0_T)
+  p <- sfApply(time,1,f.log.rank,tau=1,Treatment=Treatment)
+  power_S[which(HR==hr)] <- sum(p<0.05)/nsim
+
+  
+  
+  ##-- Freedman -------------------------------
+  E <- freedman.formula(alpha=0.05,power=0.8,HR=hr)
+  N <- 2*ceiling(E/(pexp(1,1)+pexp(1,hr)))
+  Treatment <- c(rep(0,N/2),rep(1,N/2))
+  
+  # Generate times
+  time0_C <- matrix(rexp(nsim*N/2,1),nrow=nsim)
+  time0_T <- matrix(rexp(nsim*N/2,hr),nrow=nsim)
+  time <- cbind(time0_C,time0_T)
+  p <- sfApply(time,1,f.log.rank,tau=1,Treatment=Treatment)
+  power_F[which(HR==hr)] <- sum(p<0.05)/nsim
+}
+sfStop()
+```
+
+The simulation parameters are the following:
+
+- **Number of simulations**:`r nsim`
+- **Follow-up &Tau;**: 1
+- **HRs tested**:`r paste0(HR,collapse=', ')`
+- **Test**: Log-rank
+- **Exponential distributions**:
+
+$T_C \sim Exp(\lambda_C=1)$
+
+$T_T \sim Exp(\lambda_T=HR)$
+
+## Results
+
+These plots summarize the results.
+
+```{r fig.width=10}
+par(mfrow=c(1,3))
+plot(HR,power_S,type='b',ylim=c(0.70,0.90));abline(h=0.8,lty=2)
+plot(HR,power_F,type='b',ylim=c(0.70,0.90));abline(h=0.8,lty=2)
+plot(HR,power_F/power_S,type='b');abline(h=1,lty=2)
+```
+
+The next table contains the power achieved for each formula:
+
+```{r}
+kable(data.frame(HR,power_S,power_F),digits=3,col.names = c('Hazard Ratio','Power Schoendfeld','Power Freedman'))
+```
+
+
+**Conclusion**: The performance of Schoendfeld is quite poor with HRs far away of 1. Moreover, the number of events can differ between two methods up to 30% [1].
+
+## References
+
+1. Ulrich R. Abel, Katrin Jensen, Irini Karapanagiotou-Schenkel and Meinhard Kieser. Some issues of sample size calculation for time-to-event endpoints using the Freedman and Schoenfeld formulas. Journal of Biopharmaceutical Statistics. (DOI: 10.1080/10543406.2014.1000546)[http://dx.doi.org/10.1080/10543406.2014.1000546]
