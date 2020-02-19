@@ -1,6 +1,6 @@
 ## Objective
 
-This code (*schoendfeld_vs_freedman.Rmd*) has the aim to shown the performance of **Freedman** and **Schoendfeld** formulas by simulation.
+This code (*schoendfeld_vs_freedman.Rmd*) has the aim of comparing the performance of **Freedman** and **Schoendfeld** formulas in terms of power by simulation.
 
 - Schoendfeld formula:
 
